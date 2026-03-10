@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account – Stripe VAT Tool</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="nav">
+      <h1 id="page-title">Add Account</h1>
+      <div>
+        <a href="/" class="btn btn-secondary">Back</a>
+      </div>
+    </div>
+
+    <div class="card" id="form-card">
+      <form id="account-form">
+        <label for="slug">Slug</label>
+        <input type="text" id="slug" name="slug" required pattern="[a-z0-9][a-z0-9-]*" placeholder="hotel-berlin">
+        <div class="hint">Lowercase, alphanumeric + hyphens. Used in the webhook URL.</div>
+
+        <label for="name">Display Name</label>
+        <input type="text" id="name" name="name" required placeholder="Hotel Berlin">
+
+        <label for="stripeSecretKey">Stripe Secret Key</label>
+        <input type="text" id="stripeSecretKey" name="stripeSecretKey" placeholder="sk_live_...">
+
+        <label for="stripeWebhookSecret">Stripe Webhook Secret</label>
+        <input type="text" id="stripeWebhookSecret" name="stripeWebhookSecret" placeholder="whsec_...">
+
+        <label for="slackWebhookUrl">Slack Webhook URL</label>
+        <input type="url" id="slackWebhookUrl" name="slackWebhookUrl" placeholder="https://hooks.slack.com/services/...">
+
+        <div id="webhook-info" style="display:none; margin-top: 16px;">
+          <label>Webhook Endpoint</label>
+          <div class="webhook-url" id="webhook-url"></div>
+          <div class="hint">Configure this URL in your Stripe dashboard under Developers &rarr; Webhooks.</div>
+        </div>
+
+        <div class="btn-row">
+          <button type="submit" class="btn btn-primary" id="submit-btn">Create Account</button>
+          <a href="/" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const editSlug = params.get("slug");
+    const isEdit = !!editSlug;
+
+    async function init() {
+      const user = await checkAuth();
+      if (!user) {
+        window.location.href = "/login.html";
+        return;
+      }
+
+      if (isEdit) {
+        document.getElementById("page-title").textContent = "Edit Account";
+        document.getElementById("submit-btn").textContent = "Save Changes";
+        document.getElementById("slug").readOnly = true;
+        document.getElementById("slug").style.background = "#f0f0f0";
+
+        try {
+          const account = await api(`/accounts/${editSlug}`);
+          document.getElementById("slug").value = account.slug;
+          document.getElementById("name").value = account.name || "";
+          document.getElementById("stripeSecretKey").value = account.stripeSecretKey || "";
+          document.getElementById("stripeWebhookSecret").value = account.stripeWebhookSecret || "";
+          document.getElementById("slackWebhookUrl").value = account.slackWebhookUrl || "";
+          showWebhookUrl(account.slug);
+        } catch (err) {
+          showAlert(document.getElementById("form-card"), err.message);
+        }
+      }
+    }
+
+    function showWebhookUrl(slug) {
+      const info = document.getElementById("webhook-info");
+      const url = document.getElementById("webhook-url");
+      url.textContent = `${window.location.origin}/webhook/${slug}`;
+      info.style.display = "block";
+    }
+
+    // Show webhook URL while typing slug (new account)
+    document.getElementById("slug").addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      if (val && /^[a-z0-9][a-z0-9-]*$/.test(val)) {
+        showWebhookUrl(val);
+      } else {
+        document.getElementById("webhook-info").style.display = "none";
+      }
+    });
+
+    document.getElementById("account-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const card = document.getElementById("form-card");
+      const body = {
+        slug: document.getElementById("slug").value.trim(),
+        name: document.getElementById("name").value.trim(),
+        stripeSecretKey: document.getElementById("stripeSecretKey").value.trim(),
+        stripeWebhookSecret: document.getElementById("stripeWebhookSecret").value.trim(),
+        slackWebhookUrl: document.getElementById("slackWebhookUrl").value.trim(),
+      };
+
+      try {
+        if (isEdit) {
+          await api(`/accounts/${editSlug}`, { method: "PUT", body: JSON.stringify(body) });
+        } else {
+          await api("/accounts", { method: "POST", body: JSON.stringify(body) });
+        }
+        window.location.href = "/";
+      } catch (err) {
+        showAlert(card, err.message);
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

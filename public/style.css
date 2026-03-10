@@ -1,0 +1,191 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f5f5f5;
+  color: #333;
+  line-height: 1.5;
+}
+
+.container {
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 24px;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin-bottom: 16px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+/* Forms */
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+  margin-top: 12px;
+}
+
+label:first-child { margin-top: 0; }
+
+input[type="text"],
+input[type="password"],
+input[type="url"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+input:focus {
+  outline: none;
+  border-color: #635bff;
+  box-shadow: 0 0 0 2px rgba(99, 91, 255, 0.15);
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 2px;
+}
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: #635bff;
+  color: #fff;
+}
+
+.btn-primary:hover { background: #524ddb; }
+
+.btn-danger {
+  background: #e25950;
+  color: #fff;
+}
+
+.btn-danger:hover { background: #c74b43; }
+
+.btn-secondary {
+  background: #eee;
+  color: #333;
+}
+
+.btn-secondary:hover { background: #ddd; }
+
+.btn + .btn { margin-left: 8px; }
+.btn-row { margin-top: 20px; }
+
+/* Account list */
+.account-list { list-style: none; }
+
+.account-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.account-item:last-child { border-bottom: none; }
+
+.account-info { flex: 1; }
+
+.account-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.account-slug {
+  font-size: 0.8rem;
+  color: #888;
+  font-family: monospace;
+}
+
+.account-status {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.badge-ok { background: #d4edda; color: #155724; }
+.badge-missing { background: #f8d7da; color: #721c24; }
+
+.account-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Alerts */
+.alert {
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+  font-size: 0.85rem;
+}
+
+.alert-error { background: #f8d7da; color: #721c24; }
+.alert-success { background: #d4edda; color: #155724; }
+
+/* Nav */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  margin-bottom: 8px;
+}
+
+.nav-user {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 32px;
+  color: #888;
+}
+
+/* Webhook URL display */
+.webhook-url {
+  font-family: monospace;
+  font-size: 0.8rem;
+  background: #f0f0f0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  word-break: break-all;
+  margin-top: 4px;
+}
