@@ -1,30 +1,36 @@
-const { lookupVat } = require("./config");
+import { lookupVat } from "./config";
+import type {
+  ExportRange,
+  LineItemReport,
+  LineItemRow,
+  StripeClientLike,
+  StripeLineItemLike,
+  StripeSessionLike,
+  VatBucket,
+  VatBuckets,
+} from "./types/app-types";
 
-const MAX_EXPORT_RANGE_DAYS = 366;
+export const MAX_EXPORT_RANGE_DAYS = 366;
 
-function parseIsoDate(value, fieldName) {
+function parseIsoDate(value: string | undefined, fieldName: string): Date {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) {
     throw new Error(`${fieldName} must be in YYYY-MM-DD format`);
   }
 
-  const year = Number.parseInt(match[1], 10);
-  const month = Number.parseInt(match[2], 10);
-  const day = Number.parseInt(match[3], 10);
+  const year = Number.parseInt(match[1]!, 10);
+  const month = Number.parseInt(match[2]!, 10);
+  const day = Number.parseInt(match[3]!, 10);
   const date = new Date(year, month - 1, day);
 
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
     throw new Error(`${fieldName} is not a valid date`);
   }
 
   return date;
 }
 
-function buildUnixDateRange(fromDate, toDate) {
+export function buildUnixDateRange(fromDate: string | undefined, toDate: string | undefined): ExportRange {
   const from = parseIsoDate(fromDate, "from");
   const to = parseIsoDate(toDate, "to");
 
@@ -45,8 +51,11 @@ function buildUnixDateRange(fromDate, toDate) {
   return { from: fromTimestamp, to: toTimestamp };
 }
 
-async function listCompletedSessions(stripeClient, range) {
-  const sessions = [];
+export async function listCompletedSessions(
+  stripeClient: StripeClientLike,
+  range: ExportRange
+): Promise<StripeSessionLike[]> {
+  const sessions: StripeSessionLike[] = [];
   for await (const session of stripeClient.checkout.sessions.list({
     created: { gte: range.from, lt: range.to },
     status: "complete",
@@ -58,7 +67,10 @@ async function listCompletedSessions(stripeClient, range) {
   return sessions;
 }
 
-async function getExpandedLineItems(stripeClient, session) {
+export async function getExpandedLineItems(
+  stripeClient: StripeClientLike,
+  session: StripeSessionLike
+): Promise<StripeLineItemLike[]> {
   const lineItems = session.line_items?.data || [];
   const hasCompleteLineItems =
     lineItems.length > 0 &&
@@ -76,13 +88,16 @@ async function getExpandedLineItems(stripeClient, session) {
   return fetched.data;
 }
 
-async function fetchCheckoutSessionDetails(stripeClient, sessionId) {
+export async function fetchCheckoutSessionDetails(
+  stripeClient: StripeClientLike,
+  sessionId: string
+): Promise<StripeSessionLike> {
   return stripeClient.checkout.sessions.retrieve(sessionId, {
     expand: ["payment_intent"],
   });
 }
 
-function buildLineItemRow(session, item) {
+function buildLineItemRow(session: StripeSessionLike, item: StripeLineItemLike): LineItemRow {
   const product = item.price?.product;
   const productId = typeof product === "string" ? product : product?.id;
   const productName = typeof product === "object" ? product?.name : null;
@@ -98,7 +113,7 @@ function buildLineItemRow(session, item) {
     sessionId: session.id,
     customerEmail: session.customer_details?.email || "",
     product: label,
-    productId,
+    productId: productId || null,
     vatRate,
     quantity: item.quantity,
     grossCents,
@@ -107,10 +122,13 @@ function buildLineItemRow(session, item) {
   };
 }
 
-async function buildLineItemReport(stripeClient, range) {
+export async function buildLineItemReport(
+  stripeClient: StripeClientLike,
+  range: ExportRange
+): Promise<LineItemReport> {
   const sessions = await listCompletedSessions(stripeClient, range);
-  const rows = [];
-  const buckets = {};
+  const rows: LineItemRow[] = [];
+  const buckets: VatBuckets = {};
 
   for (const session of sessions) {
     const lineItems = await getExpandedLineItems(stripeClient, session);
@@ -122,7 +140,7 @@ async function buildLineItemReport(stripeClient, range) {
       if (!buckets[row.vatRate]) {
         buckets[row.vatRate] = { gross: 0, net: 0, vat: 0, count: 0, byProduct: {} };
       }
-      const bucket = buckets[row.vatRate];
+      const bucket = buckets[row.vatRate] as VatBucket;
       bucket.gross += row.grossCents;
       bucket.net += row.netCents;
       bucket.vat += row.vatCents;
@@ -131,7 +149,7 @@ async function buildLineItemReport(stripeClient, range) {
       if (!bucket.byProduct[row.product]) {
         bucket.byProduct[row.product] = { gross: 0, net: 0, vat: 0, count: 0 };
       }
-      const productBucket = bucket.byProduct[row.product];
+      const productBucket = bucket.byProduct[row.product]!;
       productBucket.gross += row.grossCents;
       productBucket.net += row.netCents;
       productBucket.vat += row.vatCents;
@@ -142,7 +160,7 @@ async function buildLineItemReport(stripeClient, range) {
   return { buckets, rows, sessions };
 }
 
-function neutralizeSpreadsheetFormula(value) {
+function neutralizeSpreadsheetFormula(value: unknown): string {
   const normalized = String(value ?? "").replace(/\r?\n/g, " ");
   if (/^[\s]*[=+\-@]/.test(normalized)) {
     return `'${normalized}`;
@@ -150,16 +168,16 @@ function neutralizeSpreadsheetFormula(value) {
   return normalized;
 }
 
-function escapeCsvCell(value) {
+function escapeCsvCell(value: unknown): string {
   const safeValue = neutralizeSpreadsheetFormula(value).replace(/"/g, "\"\"");
   return `"${safeValue}"`;
 }
 
-function formatEurDot(cents) {
+function formatEurDot(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
-function buildLineItemCsv(rows) {
+export function buildLineItemCsv(rows: LineItemRow[]): string {
   const csvHeader = [
     "Datum",
     "Session-ID",
@@ -179,7 +197,7 @@ function buildLineItemCsv(rows) {
       escapeCsvCell(row.sessionId),
       escapeCsvCell(row.customerEmail),
       escapeCsvCell(row.product),
-      escapeCsvCell(row.productId),
+      escapeCsvCell(row.productId || ""),
       row.vatRate,
       row.quantity,
       formatEurDot(row.grossCents),
@@ -190,13 +208,3 @@ function buildLineItemCsv(rows) {
 
   return [csvHeader, ...csvRows].join("\n");
 }
-
-module.exports = {
-  MAX_EXPORT_RANGE_DAYS,
-  buildLineItemCsv,
-  buildLineItemReport,
-  buildUnixDateRange,
-  fetchCheckoutSessionDetails,
-  getExpandedLineItems,
-  listCompletedSessions,
-};

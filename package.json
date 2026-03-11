@@ -2,12 +2,13 @@
   "name": "stripe-vat-report",
   "version": "2.0.0",
   "description": "Multi-account Stripe VAT reports + real-time Slack notifications with admin GUI",
-  "main": "webhook.js",
+  "main": "dist/webhook.js",
   "scripts": {
-    "start": "node webhook.js",
-    "report": "node report.js",
-    "create-user": "node scripts/create-user.js",
-    "test": "node --test"
+    "build": "rm -rf dist && tsc && mkdir -p dist/public && find public -maxdepth 1 -type f \\( -name '*.html' -o -name '*.css' \\) -exec cp {} dist/public/ \\;",
+    "start": "npm run build && node dist/webhook.js",
+    "report": "npm run build && node dist/report.js",
+    "create-user": "npm run build && node dist/scripts/create-user.js",
+    "test": "npm run build && node --test dist/test/*.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -19,6 +20,13 @@
     "stripe": "^17.0.0"
   },
   "devDependencies": {
-    "supertest": "^7.2.2"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^4.17.25",
+    "@types/express-session": "^1.18.2",
+    "@types/node": "^25.4.0",
+    "@types/supertest": "^7.2.0",
+    "supertest": "^7.2.2",
+    "typescript": "^5.9.3"
   }
 }

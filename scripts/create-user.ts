@@ -1,17 +1,11 @@
 #!/usr/bin/env node
 
-/**
- * CLI utility to create a user.
- * Usage: node scripts/create-user.js <username>
- *        CREATE_USER_PASSWORD=... node scripts/create-user.js <username>
- */
+import { createUser } from "../auth";
+import { getErrorMessage } from "../types/app-types";
 
-const { createUser } = require("../auth");
-
-function promptForSecret(prompt) {
+function promptForSecret(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const stdin = process.stdin;
-    const stdout = process.stdout;
+    const { stdin, stdout } = process;
 
     if (!stdin.isTTY || !stdout.isTTY) {
       reject(new Error("Set CREATE_USER_PASSWORD when running without a TTY"));
@@ -24,14 +18,14 @@ function promptForSecret(prompt) {
     stdin.setRawMode(true);
     stdin.setEncoding("utf8");
 
-    function cleanup() {
+    function cleanup(): void {
       stdin.setRawMode(false);
       stdin.pause();
       stdin.removeListener("data", onData);
       stdout.write("\n");
     }
 
-    function onData(char) {
+    function onData(char: string): void {
       if (char === "\u0003") {
         cleanup();
         reject(new Error("Cancelled"));
@@ -53,11 +47,11 @@ function promptForSecret(prompt) {
   });
 }
 
-async function main() {
+async function main(): Promise<void> {
   const [username] = process.argv.slice(2);
 
   if (!username) {
-    console.error("Usage: node scripts/create-user.js <username>");
+    console.error("Usage: node dist/scripts/create-user.js <username>");
     process.exit(1);
   }
 
@@ -76,10 +70,10 @@ async function main() {
   try {
     const user = await createUser(username, password);
     console.log(`User created: ${user.username} (${user.id})`);
-  } catch (err) {
-    console.error(`Error: ${err.message}`);
+  } catch (error) {
+    console.error(`Error: ${getErrorMessage(error)}`);
     process.exit(1);
   }
 }
 
-main();
+void main();

@@ -1,17 +1,18 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
-const request = require("supertest");
-const { createApp } = require("../webhook");
-const { createAccount } = require("../accounts");
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import request from "supertest";
+import { createAccount } from "../accounts";
+import { createApp } from "../webhook";
+import type { StripeClientLike } from "../types/app-types";
 
-function makeTempDataDir() {
+function makeTempDataDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "stripe-vat-test-"));
 }
 
-function createAsyncIterable(items) {
+function createAsyncIterable<T>(items: T[]): AsyncIterable<T> {
   return {
     async *[Symbol.asyncIterator]() {
       for (const item of items) {
@@ -21,7 +22,11 @@ function createAsyncIterable(items) {
   };
 }
 
-async function setupAuthenticatedAgent(app, username = "admin", password = "super-secret-password") {
+async function setupAuthenticatedAgent(
+  app: ReturnType<typeof createApp>,
+  username = "admin",
+  password = "super-secret-password"
+) {
   const agent = request.agent(app);
   await agent.post("/api/setup").send({ username, password }).expect(200);
   return agent;
@@ -38,9 +43,9 @@ test("setup can be disabled for web bootstrap", async () => {
   const app = createApp({
     sessionSecret: "a".repeat(32),
     disableWebSetup: true,
-    stripeFactory: () => {
+    stripeFactory: (() => {
       throw new Error("stripeFactory should not be called");
-    },
+    }) as unknown as (secretKey: string) => StripeClientLike,
   });
 
   await request(app)
@@ -63,9 +68,9 @@ test("account details are masked and updates do not echo secrets back", async ()
 
   const app = createApp({
     sessionSecret: "b".repeat(32),
-    stripeFactory: () => {
+    stripeFactory: (() => {
       throw new Error("stripeFactory should not be called");
-    },
+    }) as unknown as (secretKey: string) => StripeClientLike,
   });
 
   const agent = await setupAuthenticatedAgent(app);
@@ -116,9 +121,9 @@ test("cross-origin write requests are rejected", async () => {
 
   const app = createApp({
     sessionSecret: "f".repeat(32),
-    stripeFactory: () => {
+    stripeFactory: (() => {
       throw new Error("stripeFactory should not be called");
-    },
+    }) as unknown as (secretKey: string) => StripeClientLike,
   });
 
   await request(app)
@@ -142,13 +147,14 @@ test("unsigned webhooks are rejected by default", async () => {
 
   const app = createApp({
     sessionSecret: "c".repeat(32),
-    stripeFactory: () => ({
-      webhooks: {
-        constructEvent() {
-          throw new Error("constructEvent should not be called");
+    stripeFactory: (() =>
+      ({
+        webhooks: {
+          constructEvent() {
+            throw new Error("constructEvent should not be called");
+          },
         },
-      },
-    }),
+      }) as unknown as StripeClientLike),
   });
 
   await request(app)
@@ -178,7 +184,7 @@ test("allowed unsigned webhooks are processed once per session", async () => {
     },
     checkout: {
       sessions: {
-        async retrieve(sessionId) {
+        async retrieve(sessionId: string) {
           return {
             id: sessionId,
             created: 1710163200,
@@ -203,9 +209,12 @@ test("allowed unsigned webhooks are processed once per session", async () => {
             ],
           };
         },
+        list() {
+          return createAsyncIterable([]);
+        },
       },
     },
-  };
+  } as unknown as StripeClientLike;
 
   const app = createApp({
     sessionSecret: "d".repeat(32),
@@ -233,6 +242,11 @@ test("CSV exports escape formulas and quotes", async () => {
   process.env.DATA_DIR = dataDir;
 
   const stripeStub = {
+    webhooks: {
+      constructEvent() {
+        throw new Error("not expected");
+      },
+    },
     checkout: {
       sessions: {
         list() {
@@ -260,9 +274,15 @@ test("CSV exports escape formulas and quotes", async () => {
             },
           ]);
         },
+        async listLineItems() {
+          return { data: [] };
+        },
+        async retrieve() {
+          throw new Error("not expected");
+        },
       },
     },
-  };
+  } as unknown as StripeClientLike;
 
   const app = createApp({
     sessionSecret: "e".repeat(32),
@@ -295,9 +315,9 @@ test("exports reject ranges larger than one year", async () => {
 
   const app = createApp({
     sessionSecret: "g".repeat(32),
-    stripeFactory: () => {
+    stripeFactory: (() => {
       throw new Error("stripeFactory should not be called");
-    },
+    }) as unknown as (secretKey: string) => StripeClientLike,
   });
   const agent = await setupAuthenticatedAgent(app);
 

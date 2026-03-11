@@ -107,7 +107,7 @@ The app fetches the checkout session from Stripe before building the Slack messa
 VAT is resolved in this order:
 
 1. `product.metadata.vat_rate`
-2. hardcoded product ID map in [`config.js`](/Users/niklashofmann/Sites/stripe-invoicing-tool/config.js)
+2. hardcoded product ID map in [`config.ts`](/Users/niklashofmann/Sites/stripe-invoicing-tool/config.ts)
 3. keyword fallback
 4. default `19%`
 
@@ -133,13 +133,13 @@ The export is currently line-item based because that best matches VAT reporting.
 
 ```bash
 # Summary only
-node report.js 2026-03 --account=hotel-berlin
+npm run report -- 2026-03 --account=hotel-berlin
 
 # Summary + CSV export
-node report.js 2026-03 --account=hotel-berlin --csv
+npm run report -- 2026-03 --account=hotel-berlin --csv
 
 # Legacy direct key usage
-STRIPE_SECRET_KEY=sk_live_... node report.js 2026-03 --csv
+STRIPE_SECRET_KEY=sk_live_... npm run report -- 2026-03 --csv
 ```
 
 ## Tests
@@ -224,25 +224,33 @@ CREATE_USER_PASSWORD='replace-with-a-strong-password' npm run create-user -- adm
 
 ```text
 .
-├── accounts.js
-├── audit.js
-├── config.js
-├── exports.js
-├── processed-sessions.js
-├── report.js
+├── accounts.ts
+├── audit.ts
+├── config.ts
+├── exports.ts
+├── processed-sessions.ts
+├── report.ts
 ├── routes/
-│   └── api.js
+│   └── api.ts
 ├── public/
 │   ├── account-form.html
-│   ├── app.js
+│   ├── account-form.ts
+│   ├── app.ts
 │   ├── export.html
+│   ├── export.ts
 │   ├── index.html
-│   └── login.html
+│   ├── index.ts
+│   ├── login.html
+│   └── login.ts
 ├── scripts/
-│   └── create-user.js
-├── storage.js
+│   └── create-user.ts
+├── storage.ts
 ├── test/
-│   └── app.test.js
-├── webhook.js
+│   └── app.test.ts
+├── tsconfig.json
+├── types/
+│   ├── app-types.ts
+│   └── express-session.d.ts
+├── webhook.ts
 └── Dockerfile
 ```

@@ -12,7 +12,7 @@
       <h1>Stripe Accounts</h1>
       <div>
         <span class="nav-user" id="nav-user"></span>
-        <button class="btn btn-secondary" onclick="logout()">Logout</button>
+        <button class="btn btn-secondary" id="logout-button">Logout</button>
       </div>
     </div>
 
@@ -29,66 +29,6 @@
   </div>
 
   <script src="/app.js"></script>
-  <script>
-    async function init() {
-      const user = await checkAuth();
-      if (!user) {
-        window.location.href = "/login.html";
-        return;
-      }
-      document.getElementById("nav-user").textContent = user.username;
-      await loadAccounts();
-    }
-
-    async function loadAccounts() {
-      const list = document.getElementById("account-list");
-      try {
-        const accounts = await api("/accounts");
-        if (accounts.length === 0) {
-          list.innerHTML = '<li class="empty-state">No accounts configured yet. Add one to get started.</li>';
-          return;
-        }
-
-        list.innerHTML = accounts.map((a) => `
-          <li class="account-item">
-            <div class="account-info">
-              <div class="account-name">${esc(a.name)}</div>
-              <div class="account-slug">/webhook/${esc(a.slug)}</div>
-              <div class="account-status">
-                <span class="badge ${a.hasStripeKey ? 'badge-ok' : 'badge-missing'}">${a.hasStripeKey ? 'Stripe Key' : 'No Key'}</span>
-                <span class="badge ${a.hasWebhookSecret ? 'badge-ok' : 'badge-missing'}">${a.hasWebhookSecret ? 'Webhook Secret' : 'No Secret'}</span>
-                <span class="badge ${a.hasSlackUrl ? 'badge-ok' : 'badge-missing'}">${a.hasSlackUrl ? 'Slack' : 'No Slack'}</span>
-              </div>
-            </div>
-            <div class="account-actions">
-              <a href="/export.html?slug=${esc(a.slug)}" class="btn btn-secondary">Export</a>
-              <a href="/account-form.html?slug=${esc(a.slug)}" class="btn btn-secondary">Edit</a>
-              <button class="btn btn-danger" onclick="deleteAccount('${esc(a.slug)}')">Delete</button>
-            </div>
-          </li>
-        `).join("");
-      } catch (err) {
-        list.innerHTML = `<li class="empty-state" style="color:#c74b43;">Error: ${esc(err.message)}</li>`;
-      }
-    }
-
-    async function deleteAccount(slug) {
-      if (!confirm(`Delete account "${slug}"? This cannot be undone.`)) return;
-      try {
-        await api(`/accounts/${slug}`, { method: "DELETE" });
-        await loadAccounts();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    function esc(str) {
-      const div = document.createElement("div");
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    init();
-  </script>
+  <script src="/index.js"></script>
 </body>
 </html>

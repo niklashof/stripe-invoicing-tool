@@ -26,50 +26,6 @@
   </div>
 
   <script src="/app.js"></script>
-  <script>
-    let isSetup = false;
-
-    async function init() {
-      // Already logged in?
-      const user = await checkAuth();
-      if (user) {
-        window.location.href = "/";
-        return;
-      }
-
-      // First-run setup?
-      const { needed, disabled } = await api("/setup-needed");
-      if (needed) {
-        isSetup = true;
-        document.getElementById("form-title").textContent = "Create Admin Account";
-        document.getElementById("submit-btn").textContent = "Create Account";
-        document.getElementById("password").autocomplete = "new-password";
-      } else if (disabled) {
-        const note = document.getElementById("setup-note");
-        note.textContent = "Initial setup is disabled in the web UI. Create the first user via CLI.";
-        note.style.display = "block";
-      }
-    }
-
-    document.getElementById("auth-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const card = document.getElementById("login-card");
-      const username = document.getElementById("username").value;
-      const password = document.getElementById("password").value;
-
-      try {
-        const endpoint = isSetup ? "/setup" : "/login";
-        await api(endpoint, {
-          method: "POST",
-          body: JSON.stringify({ username, password }),
-        });
-        window.location.href = "/";
-      } catch (err) {
-        showAlert(card, err.message);
-      }
-    });
-
-    init();
-  </script>
+  <script src="/login.js"></script>
 </body>
 </html>

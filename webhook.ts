@@ -1,36 +1,32 @@
-/**
- * Stripe Multi-Account Webhook Server + Admin GUI
- *
- * Environment variables:
- *   PORT                    - Server port (default: 3000)
- *   SESSION_SECRET          - Required secret for session cookies
- *   NODE_ENV                - Set to production for secure cookies
- *   ALLOW_UNSIGNED_WEBHOOKS - Optional, allow webhook processing without Stripe signatures
- *   DISABLE_WEB_SETUP       - Optional, disable first-user setup via the web UI
- *   TRUST_PROXY             - Optional Express trust proxy setting (default: 1)
- */
+import cookieParser from "cookie-parser";
+import express, { type NextFunction, type Request, type RequestHandler, type Response } from "express";
+import session from "express-session";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+import path from "node:path";
+import Stripe from "stripe";
+import { getAccount } from "./accounts";
+import { logAuditEvent } from "./audit";
+import { formatEur, lookupVat } from "./config";
+import { fetchCheckoutSessionDetails, getExpandedLineItems } from "./exports";
+import { hasProcessedSession, markProcessedSession } from "./processed-sessions";
+import createApiRouter from "./routes/api";
+import {
+  getErrorMessage,
+  type Account,
+  type CheckoutEvent,
+  type CreateAppOptions,
+  type StripeClientLike,
+  type StripeFactory,
+} from "./types/app-types";
 
-const express = require("express");
-const cookieParser = require("cookie-parser");
-const session = require("express-session");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
-const path = require("path");
-const Stripe = require("stripe");
-const { formatEur, lookupVat } = require("./config");
-const { getAccount } = require("./accounts");
-const { logAuditEvent } = require("./audit");
-const createApiRouter = require("./routes/api");
-const { fetchCheckoutSessionDetails, getExpandedLineItems } = require("./exports");
-const { hasProcessedSession, markProcessedSession } = require("./processed-sessions");
+const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 
-const PORT = process.env.PORT || 3000;
-
-function isTruthy(value) {
+function isTruthy(value: unknown): boolean {
   return /^(1|true|yes|on)$/i.test(String(value || ""));
 }
 
-function getSessionSecret(value) {
+function getSessionSecret(value: unknown): string {
   const secret = String(value || "");
   if (!secret) {
     throw new Error("SESSION_SECRET is required");
@@ -41,7 +37,7 @@ function getSessionSecret(value) {
   return secret;
 }
 
-function getTrustProxySetting() {
+function getTrustProxySetting(): boolean | number | string {
   const rawValue = process.env.TRUST_PROXY;
   if (rawValue === undefined) {
     return 1;
@@ -58,12 +54,12 @@ function getTrustProxySetting() {
   return rawValue;
 }
 
-function buildSecurityHeaders() {
+function buildSecurityHeaders(): RequestHandler {
   return helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:"],
         connectSrc: ["'self'"],
@@ -77,7 +73,7 @@ function buildSecurityHeaders() {
   });
 }
 
-function buildAuthLimiter(windowMs, max, message) {
+function buildAuthLimiter(windowMs: number, max: number, message: string): RequestHandler {
   return rateLimit({
     windowMs,
     max,
@@ -87,9 +83,10 @@ function buildAuthLimiter(windowMs, max, message) {
   });
 }
 
-function sameOriginWriteGuard(req, res, next) {
+const sameOriginWriteGuard: RequestHandler = (req, res, next) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
-    return next();
+    next();
+    return;
   }
 
   const origin = req.get("origin");
@@ -97,33 +94,47 @@ function sameOriginWriteGuard(req, res, next) {
   const source = origin || referer;
 
   if (!source) {
-    return next();
+    next();
+    return;
   }
 
-  let parsedSource;
+  let parsedSource: URL;
   try {
     parsedSource = new URL(source);
-  } catch (_err) {
-    return res.status(403).json({ error: "Invalid request origin" });
+  } catch {
+    res.status(403).json({ error: "Invalid request origin" });
+    return;
   }
 
   if (parsedSource.host !== req.get("host")) {
-    return res.status(403).json({ error: "Cross-origin requests are not allowed" });
+    res.status(403).json({ error: "Cross-origin requests are not allowed" });
+    return;
   }
 
-  return next();
-}
+  next();
+};
 
-function setNoStoreHeaders(_req, res, next) {
+const setNoStoreHeaders: RequestHandler = (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
-}
+};
 
-async function handleCheckoutCompleted(stripeClient, account, sessionId) {
+export async function handleCheckoutCompleted(
+  stripeClient: StripeClientLike,
+  account: Account,
+  sessionId: string
+): Promise<{ customerEmail: string; totalGross: number }> {
   const checkoutSession = await fetchCheckoutSessionDetails(stripeClient, sessionId);
   const lineItems = await getExpandedLineItems(stripeClient, checkoutSession);
 
-  const items = [];
+  const items: Array<{
+    label: string;
+    quantity: number;
+    grossCents: number;
+    netCents: number;
+    vatCents: number;
+    vatRate: number;
+  }> = [];
   let totalGross = 0;
   let totalVat = 0;
 
@@ -239,13 +250,18 @@ async function handleCheckoutCompleted(stripeClient, account, sessionId) {
   return { customerEmail, totalGross };
 }
 
-function createApp(options = {}) {
+export function createApp(options: CreateAppOptions = {}): express.Express {
   const sessionSecret = getSessionSecret(options.sessionSecret ?? process.env.SESSION_SECRET);
-  const allowUnsignedWebhooks = options.allowUnsignedWebhooks ?? isTruthy(process.env.ALLOW_UNSIGNED_WEBHOOKS);
+  const allowUnsignedWebhooks =
+    options.allowUnsignedWebhooks ?? isTruthy(process.env.ALLOW_UNSIGNED_WEBHOOKS);
   const disableWebSetup = options.disableWebSetup ?? isTruthy(process.env.DISABLE_WEB_SETUP);
-  const stripeFactory = options.stripeFactory || ((secretKey) => new Stripe(secretKey));
-  const loginLimiter = options.loginLimiter || buildAuthLimiter(15 * 60 * 1000, 10, "Too many login attempts");
-  const setupLimiter = options.setupLimiter || buildAuthLimiter(15 * 60 * 1000, 5, "Too many setup attempts");
+  const stripeFactory: StripeFactory =
+    options.stripeFactory ??
+    ((secretKey: string) => new Stripe(secretKey) as unknown as StripeClientLike);
+  const loginLimiter =
+    options.loginLimiter ?? buildAuthLimiter(15 * 60 * 1000, 10, "Too many login attempts");
+  const setupLimiter =
+    options.setupLimiter ?? buildAuthLimiter(15 * 60 * 1000, 5, "Too many setup attempts");
 
   const app = express();
   app.disable("x-powered-by");
@@ -255,57 +271,66 @@ function createApp(options = {}) {
   app.post(
     "/webhook/:accountSlug",
     express.raw({ type: "application/json", limit: "1mb" }),
-    async (req, res) => {
+    async (req: Request, res: Response) => {
       const account = getAccount(req.params.accountSlug);
       if (!account) {
         console.error(`Unknown account slug: ${req.params.accountSlug}`);
-        return res.status(404).send("Unknown account");
+        res.status(404).send("Unknown account");
+        return;
       }
       if (!account.stripeSecretKey) {
-        return res.status(503).send("Account is missing a Stripe secret key");
+        res.status(503).send("Account is missing a Stripe secret key");
+        return;
       }
 
       const stripeClient = stripeFactory(account.stripeSecretKey);
-      let event;
+      let event: CheckoutEvent;
 
       if (account.stripeWebhookSecret) {
         try {
           event = stripeClient.webhooks.constructEvent(
-            req.body,
+            req.body as Buffer,
             req.headers["stripe-signature"],
             account.stripeWebhookSecret
           );
-        } catch (err) {
+        } catch (error) {
+          const message = getErrorMessage(error);
           logAuditEvent("webhook.signature.failed", {
             slug: account.slug,
-            reason: err.message,
+            reason: message,
             ip: req.ip,
           });
-          return res.status(400).send(`Webhook Error: ${err.message}`);
+          res.status(400).send(`Webhook Error: ${message}`);
+          return;
         }
       } else if (allowUnsignedWebhooks) {
         try {
-          event = JSON.parse(req.body.toString("utf-8"));
-        } catch (_err) {
-          return res.status(400).send("Invalid JSON payload");
+          event = JSON.parse((req.body as Buffer).toString("utf-8")) as CheckoutEvent;
+        } catch {
+          res.status(400).send("Invalid JSON payload");
+          return;
         }
         logAuditEvent("webhook.unsigned.accepted", { slug: account.slug, ip: req.ip });
       } else {
         logAuditEvent("webhook.unsigned.rejected", { slug: account.slug, ip: req.ip });
-        return res.status(503).send("Webhook secret missing for account");
+        res.status(503).send("Webhook secret missing for account");
+        return;
       }
 
       if (event.type !== "checkout.session.completed") {
-        return res.json({ received: true, ignored: true });
+        res.json({ received: true, ignored: true });
+        return;
       }
 
       const sessionId = event.data?.object?.id;
       if (!sessionId) {
-        return res.status(400).send("Missing checkout session id");
+        res.status(400).send("Missing checkout session id");
+        return;
       }
 
       if (hasProcessedSession(account.slug, sessionId)) {
-        return res.json({ received: true, duplicate: true });
+        res.json({ received: true, duplicate: true });
+        return;
       }
 
       try {
@@ -318,19 +343,20 @@ function createApp(options = {}) {
           customerEmail: result.customerEmail,
         });
         res.json({ received: true });
-      } catch (err) {
+      } catch (error) {
+        const message = getErrorMessage(error);
         logAuditEvent("webhook.processing.failed", {
           slug: account.slug,
           sessionId,
-          reason: err.message,
+          reason: message,
         });
-        console.error(`[${account.slug}] Error processing webhook:`, err);
-        res.status(502).json({ received: false, error: err.message });
+        console.error(`[${account.slug}] Error processing webhook:`, error);
+        res.status(502).json({ received: false, error: message });
       }
     }
   );
 
-  app.get("/health", (_req, res) => {
+  app.get("/health", (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({ status: "ok", uptime: process.uptime() });
   });
@@ -366,32 +392,27 @@ function createApp(options = {}) {
     })
   );
 
-  app.use((err, req, res, next) => {
-    if (err instanceof SyntaxError && req.path.startsWith("/api")) {
-      return res.status(400).json({ error: "Invalid JSON body" });
+  app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (error instanceof SyntaxError && req.path.startsWith("/api")) {
+      res.status(400).json({ error: "Invalid JSON body" });
+      return;
     }
-    return next(err);
+    next(error);
   });
 
   return app;
 }
 
-function startServer() {
+export function startServer(): void {
   const app = createApp();
   app.listen(PORT, () => {
     console.log(`Stripe webhook server running on port ${PORT}`);
-    console.log(`  Webhook endpoint: POST /webhook/:accountSlug`);
+    console.log("  Webhook endpoint: POST /webhook/:accountSlug");
     console.log(`  Admin GUI:        http://localhost:${PORT}/`);
-    console.log(`  Health check:     GET  /health`);
+    console.log("  Health check:     GET  /health");
   });
 }
 
 if (require.main === module) {
   startServer();
 }
-
-module.exports = {
-  createApp,
-  handleCheckoutCompleted,
-  startServer,
-};
