@@ -3,27 +3,20 @@
  * Data is persisted in data/accounts.json.
  */
 
-const fs = require("fs");
-const path = require("path");
+const { readJsonFile, writeJsonFile } = require("./storage");
 
-const DATA_DIR = path.join(__dirname, "data");
-const ACCOUNTS_FILE = path.join(DATA_DIR, "accounts.json");
+const ACCOUNTS_FILE = "accounts.json";
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+function cleanValue(value) {
+  if (typeof value !== "string") {
+    return value ?? null;
   }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
 }
 
 function loadAccounts() {
-  ensureDataDir();
-  if (!fs.existsSync(ACCOUNTS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(ACCOUNTS_FILE, "utf-8"));
-}
-
-function saveAccounts(accounts) {
-  ensureDataDir();
-  fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), "utf-8");
+  return readJsonFile(ACCOUNTS_FILE, []);
 }
 
 function getAccount(slug) {
@@ -39,9 +32,15 @@ function createAccount({ slug, name, stripeSecretKey, stripeWebhookSecret, slack
   if (accounts.find((a) => a.slug === slug)) {
     throw new Error(`Account "${slug}" already exists`);
   }
-  const account = { slug, name, stripeSecretKey, stripeWebhookSecret, slackWebhookUrl };
+  const account = {
+    slug,
+    name: String(name || "").trim(),
+    stripeSecretKey: cleanValue(stripeSecretKey),
+    stripeWebhookSecret: cleanValue(stripeWebhookSecret),
+    slackWebhookUrl: cleanValue(slackWebhookUrl),
+  };
   accounts.push(account);
-  saveAccounts(accounts);
+  writeJsonFile(ACCOUNTS_FILE, accounts);
   return account;
 }
 
@@ -49,10 +48,23 @@ function updateAccount(slug, updates) {
   const accounts = loadAccounts();
   const idx = accounts.findIndex((a) => a.slug === slug);
   if (idx === -1) throw new Error(`Account "${slug}" not found`);
-  // Don't allow changing slug
-  delete updates.slug;
-  accounts[idx] = { ...accounts[idx], ...updates };
-  saveAccounts(accounts);
+
+  const nextAccount = { ...accounts[idx] };
+  if (updates.name !== undefined) {
+    nextAccount.name = String(updates.name || "").trim();
+  }
+  if (updates.stripeSecretKey !== undefined) {
+    nextAccount.stripeSecretKey = cleanValue(updates.stripeSecretKey);
+  }
+  if (updates.stripeWebhookSecret !== undefined) {
+    nextAccount.stripeWebhookSecret = cleanValue(updates.stripeWebhookSecret);
+  }
+  if (updates.slackWebhookUrl !== undefined) {
+    nextAccount.slackWebhookUrl = cleanValue(updates.slackWebhookUrl);
+  }
+
+  accounts[idx] = nextAccount;
+  writeJsonFile(ACCOUNTS_FILE, accounts);
   return accounts[idx];
 }
 
@@ -61,7 +73,7 @@ function deleteAccount(slug) {
   const idx = accounts.findIndex((a) => a.slug === slug);
   if (idx === -1) throw new Error(`Account "${slug}" not found`);
   accounts.splice(idx, 1);
-  saveAccounts(accounts);
+  writeJsonFile(ACCOUNTS_FILE, accounts);
 }
 
-module.exports = { loadAccounts, saveAccounts, getAccount, getAllAccounts, createAccount, updateAccount, deleteAccount };
+module.exports = { loadAccounts, getAccount, getAllAccounts, createAccount, updateAccount, deleteAccount };

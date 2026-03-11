@@ -21,6 +21,7 @@
           <button type="submit" class="btn btn-primary" id="submit-btn">Login</button>
         </div>
       </form>
+      <p id="setup-note" class="hint" style="display:none; margin-top: 16px;"></p>
     </div>
   </div>
 
@@ -37,11 +38,16 @@
       }
 
       // First-run setup?
-      const { needed } = await api("/setup-needed");
+      const { needed, disabled } = await api("/setup-needed");
       if (needed) {
         isSetup = true;
         document.getElementById("form-title").textContent = "Create Admin Account";
         document.getElementById("submit-btn").textContent = "Create Account";
+        document.getElementById("password").autocomplete = "new-password";
+      } else if (disabled) {
+        const note = document.getElementById("setup-note");
+        note.textContent = "Initial setup is disabled in the web UI. Create the first user via CLI.";
+        note.style.display = "block";
       }
     }
 

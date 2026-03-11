@@ -17,8 +17,8 @@
 const Stripe = require("stripe");
 const fs = require("fs");
 const path = require("path");
-const { lookupVat } = require("./config");
 const { getAccount, getAllAccounts } = require("./accounts");
+const { buildLineItemCsv, buildLineItemReport } = require("./exports");
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -41,10 +41,6 @@ function parseMonth(input) {
 
 function formatEur(cents) {
   return (cents / 100).toFixed(2).replace(".", ",");
-}
-
-function formatEurDot(cents) {
-  return (cents / 100).toFixed(2);
 }
 
 function resolveStripeKey(args) {
@@ -85,16 +81,10 @@ async function main() {
     : `Fetching completed payments for ${period.label} ...`;
   console.log(`\n${heading}\n`);
 
-  // Collect all completed checkout sessions in the period
-  const sessions = [];
-  for await (const session of stripe.checkout.sessions.list({
-    created: { gte: period.from, lt: period.to },
-    status: "complete",
-    limit: 100,
-    expand: ["data.line_items", "data.line_items.data.price.product"],
-  })) {
-    sessions.push(session);
-  }
+  const { buckets, rows, sessions } = await buildLineItemReport(stripe, {
+    from: period.from,
+    to: period.to,
+  });
 
   if (sessions.length === 0) {
     console.log("No completed checkout sessions found for this period.");
@@ -102,66 +92,6 @@ async function main() {
   }
 
   console.log(`Found ${sessions.length} completed session(s).\n`);
-
-  // ── Collect individual line items ──────────────────────────────
-
-  const rows = [];
-  const buckets = {};
-
-  for (const session of sessions) {
-    let lineItems = session.line_items?.data || [];
-
-    if (lineItems.length === 0) {
-      const fetched = await stripe.checkout.sessions.listLineItems(session.id, {
-        limit: 100,
-        expand: ["data.price.product"],
-      });
-      lineItems = fetched.data;
-    }
-
-    for (const item of lineItems) {
-      const product = item.price?.product;
-      const productId = typeof product === "string" ? product : product?.id;
-      const productName = typeof product === "object" ? product?.name : null;
-      const productMetadata = typeof product === "object" ? product?.metadata : null;
-      const { label, vatRate } = lookupVat(productId, productName, productMetadata);
-
-      const grossCents = item.amount_total;
-      const netCents = Math.round(grossCents / (1 + vatRate / 100));
-      const vatCents = grossCents - netCents;
-
-      rows.push({
-        date: new Date(session.created * 1000).toISOString().slice(0, 10),
-        sessionId: session.id,
-        customerEmail: session.customer_details?.email || "",
-        product: label,
-        productId,
-        vatRate,
-        quantity: item.quantity,
-        grossCents,
-        netCents,
-        vatCents,
-      });
-
-      if (!buckets[vatRate]) {
-        buckets[vatRate] = { gross: 0, net: 0, vat: 0, count: 0, byProduct: {} };
-      }
-      const b = buckets[vatRate];
-      b.gross += grossCents;
-      b.net += netCents;
-      b.vat += vatCents;
-      b.count += item.quantity;
-
-      if (!b.byProduct[label]) {
-        b.byProduct[label] = { gross: 0, net: 0, vat: 0, count: 0 };
-      }
-      const bp = b.byProduct[label];
-      bp.gross += grossCents;
-      bp.net += netCents;
-      bp.vat += vatCents;
-      bp.count += item.quantity;
-    }
-  }
 
   // ── Console summary ────────────────────────────────────────────
 
@@ -215,35 +145,7 @@ async function main() {
   // ── CSV export ─────────────────────────────────────────────────
 
   if (wantCsv) {
-    const csvHeader = [
-      "Datum",
-      "Session-ID",
-      "E-Mail",
-      "Produkt",
-      "Produkt-ID",
-      "USt-%",
-      "Anzahl",
-      "Brutto (EUR)",
-      "Netto (EUR)",
-      "USt (EUR)",
-    ].join(";");
-
-    const csvRows = rows.map((r) =>
-      [
-        r.date,
-        r.sessionId,
-        r.customerEmail,
-        `"${r.product}"`,
-        r.productId,
-        r.vatRate,
-        r.quantity,
-        formatEurDot(r.grossCents),
-        formatEurDot(r.netCents),
-        formatEurDot(r.vatCents),
-      ].join(";")
-    );
-
-    const csvContent = [csvHeader, ...csvRows].join("\n");
+    const csvContent = buildLineItemCsv(rows);
     const csvPath = path.join(
       process.cwd(),
       `vat-report-${period.label}.csv`

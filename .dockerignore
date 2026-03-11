@@ -1,0 +1,8 @@
+node_modules
+data
+.git
+.gitignore
+.claude
+test
+*.csv
+npm-debug.log

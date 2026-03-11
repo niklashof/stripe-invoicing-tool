@@ -26,12 +26,24 @@
 
         <label for="stripeSecretKey">Stripe Secret Key</label>
         <input type="text" id="stripeSecretKey" name="stripeSecretKey" placeholder="sk_live_...">
+        <div class="hint" id="stripe-key-hint">Stored keys are never shown again. Leave blank to keep the current key.</div>
+        <label class="hint" id="clear-stripe-key-row" style="display:none; margin-top: 8px;">
+          <input type="checkbox" id="clearStripeSecretKey"> Remove stored Stripe key
+        </label>
 
         <label for="stripeWebhookSecret">Stripe Webhook Secret</label>
         <input type="text" id="stripeWebhookSecret" name="stripeWebhookSecret" placeholder="whsec_...">
+        <div class="hint" id="webhook-secret-hint">Stored webhook secrets are never shown again. Leave blank to keep the current secret.</div>
+        <label class="hint" id="clear-webhook-secret-row" style="display:none; margin-top: 8px;">
+          <input type="checkbox" id="clearStripeWebhookSecret"> Remove stored webhook secret
+        </label>
 
         <label for="slackWebhookUrl">Slack Webhook URL</label>
         <input type="url" id="slackWebhookUrl" name="slackWebhookUrl" placeholder="https://hooks.slack.com/services/...">
+        <div class="hint" id="slack-url-hint">Stored webhook URLs are never shown again. Leave blank to keep the current URL.</div>
+        <label class="hint" id="clear-slack-url-row" style="display:none; margin-top: 8px;">
+          <input type="checkbox" id="clearSlackWebhookUrl"> Remove stored Slack webhook URL
+        </label>
 
         <div id="webhook-info" style="display:none; margin-top: 16px;">
           <label>Webhook Endpoint</label>
@@ -41,6 +53,7 @@
 
         <div class="btn-row">
           <button type="submit" class="btn btn-primary" id="submit-btn">Create Account</button>
+          <a href="#" class="btn btn-secondary" id="export-link" style="display:none;">Export Line Items</a>
           <a href="/" class="btn btn-secondary">Cancel</a>
         </div>
       </form>
@@ -70,10 +83,13 @@
           const account = await api(`/accounts/${editSlug}`);
           document.getElementById("slug").value = account.slug;
           document.getElementById("name").value = account.name || "";
-          document.getElementById("stripeSecretKey").value = account.stripeSecretKey || "";
-          document.getElementById("stripeWebhookSecret").value = account.stripeWebhookSecret || "";
-          document.getElementById("slackWebhookUrl").value = account.slackWebhookUrl || "";
+          updateStoredSecretState("stripe", account.hasStripeKey, account.stripeSecretKeyMasked);
+          updateStoredSecretState("webhook", account.hasWebhookSecret, account.stripeWebhookSecretMasked);
+          updateStoredSecretState("slack", account.hasSlackUrl, account.slackWebhookUrlMasked);
           showWebhookUrl(account.slug);
+          const exportLink = document.getElementById("export-link");
+          exportLink.href = `/export.html?slug=${encodeURIComponent(account.slug)}`;
+          exportLink.style.display = "inline-flex";
         } catch (err) {
           showAlert(document.getElementById("form-card"), err.message);
         }
@@ -85,6 +101,53 @@
       const url = document.getElementById("webhook-url");
       url.textContent = `${window.location.origin}/webhook/${slug}`;
       info.style.display = "block";
+    }
+
+    function updateStoredSecretState(type, hasValue, maskedValue) {
+      const hints = {
+        stripe: {
+          hint: document.getElementById("stripe-key-hint"),
+          row: document.getElementById("clear-stripe-key-row"),
+          input: document.getElementById("stripeSecretKey"),
+          clear: document.getElementById("clearStripeSecretKey"),
+        },
+        webhook: {
+          hint: document.getElementById("webhook-secret-hint"),
+          row: document.getElementById("clear-webhook-secret-row"),
+          input: document.getElementById("stripeWebhookSecret"),
+          clear: document.getElementById("clearStripeWebhookSecret"),
+        },
+        slack: {
+          hint: document.getElementById("slack-url-hint"),
+          row: document.getElementById("clear-slack-url-row"),
+          input: document.getElementById("slackWebhookUrl"),
+          clear: document.getElementById("clearSlackWebhookUrl"),
+        },
+      };
+
+      const entry = hints[type];
+      if (!entry) return;
+      if (hasValue) {
+        entry.hint.textContent = `Stored value: ${maskedValue}. Leave blank to keep it, or enter a new value to replace it.`;
+        entry.row.style.display = "block";
+        entry.input.placeholder = "Leave blank to keep existing value";
+        entry.input.addEventListener("input", () => {
+          if (entry.input.value.trim()) {
+            entry.clear.checked = false;
+          }
+          syncClearState(entry);
+        });
+        entry.clear.addEventListener("change", () => syncClearState(entry));
+      } else {
+        entry.row.style.display = "none";
+      }
+    }
+
+    function syncClearState(entry) {
+      if (entry.clear.checked) {
+        entry.input.value = "";
+      }
+      entry.input.disabled = entry.clear.checked;
     }
 
     // Show webhook URL while typing slug (new account)
@@ -103,9 +166,12 @@
       const body = {
         slug: document.getElementById("slug").value.trim(),
         name: document.getElementById("name").value.trim(),
-        stripeSecretKey: document.getElementById("stripeSecretKey").value.trim(),
-        stripeWebhookSecret: document.getElementById("stripeWebhookSecret").value.trim(),
-        slackWebhookUrl: document.getElementById("slackWebhookUrl").value.trim(),
+        stripeSecretKey: document.getElementById("clearStripeSecretKey").checked ? "" : document.getElementById("stripeSecretKey").value.trim(),
+        stripeWebhookSecret: document.getElementById("clearStripeWebhookSecret").checked ? "" : document.getElementById("stripeWebhookSecret").value.trim(),
+        slackWebhookUrl: document.getElementById("clearSlackWebhookUrl").checked ? "" : document.getElementById("slackWebhookUrl").value.trim(),
+        clearStripeSecretKey: document.getElementById("clearStripeSecretKey").checked,
+        clearStripeWebhookSecret: document.getElementById("clearStripeWebhookSecret").checked,
+        clearSlackWebhookUrl: document.getElementById("clearSlackWebhookUrl").checked,
       };
 
       try {

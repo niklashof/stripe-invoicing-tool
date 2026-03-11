@@ -1,134 +1,248 @@
-# Stripe VAT Report & Slack Notifications
+# Stripe VAT Report & Admin Tool
 
-Multi-account Stripe webhook server that posts real-time payment notifications with VAT breakdowns to Slack. Includes an admin GUI for managing accounts and a CLI report generator.
+Multi-account Stripe webhook server with:
 
-Built for accommodation businesses (Airbnb managers, hotels) that send Stripe payment links for services like early check-in, parking, extra persons, etc. — each with different VAT rates.
+- real-time Slack notifications for completed checkouts
+- an authenticated admin GUI for account management
+- GUI CSV exports with a date picker
+- a CLI VAT report generator
+- audit logging and hardened deployment defaults
+
+Built for internal use by accommodation businesses that send Stripe payment links for services like early check-in, parking, extra persons, and similar add-ons.
 
 ## Features
 
-- **Multi-account** — manage multiple Stripe accounts, each with its own Slack channel
-- **VAT from metadata** — reads the `vat_rate` field from Stripe product metadata (set to `7` or `19`)
-- **Real-time Slack notifications** — posts a formatted message on every completed checkout
-- **Admin GUI** — web interface to add/edit/delete accounts, with login system
-- **Monthly reports** — CLI tool for VAT summaries + CSV export
+- Multi-account Stripe support with one webhook path per account
+- Slack notifications grouped per checkout session and listing all line items
+- VAT resolution from Stripe product metadata, with keyword fallback
+- GUI line-item exports with account-specific date filtering
+- Masked one-way secret handling in the admin UI
+- Audit log for setup, login, logout, account changes, and exports
+- CSV escaping for spreadsheet safety
+- Duplicate webhook suppression per checkout session
+- Same-origin protection for state-changing browser requests
+- No-store caching headers on HTML and API responses
+
+## Requirements
+
+- Node.js 20+
+- A persistent writable `data/` directory
+- A strong `SESSION_SECRET`
 
 ## Quick Start
 
 ```bash
 npm install
+export SESSION_SECRET="$(openssl rand -hex 32)"
+export NODE_ENV=development
 npm start
 ```
 
-Visit `http://localhost:3000` — on first run you'll be prompted to create an admin account.
+Open `http://localhost:3000`.
 
-## How It Works
+If no user exists yet, you can either:
 
-1. Add a Stripe account via the admin GUI (Stripe key, webhook secret, Slack URL)
-2. The GUI shows the webhook URL to configure in Stripe (e.g. `/webhook/hotel-berlin`)
-3. Set `vat_rate` as metadata on your Stripe products (`7` or `19`)
-4. When a customer pays, Stripe sends a webhook → the server posts a Slack notification with VAT breakdown
+- create the first user in the browser, or
+- create it via CLI:
 
-### VAT Rate Resolution
+```bash
+CREATE_USER_PASSWORD='replace-with-a-strong-password' npm run create-user -- admin
+```
 
-The tool determines the VAT rate for each line item in this order:
-
-1. **Product metadata** — `vat_rate` field on the Stripe product (recommended)
-2. **Keyword matching** — falls back to matching product names (e.g. "check-in" → 7%)
-3. **Default** — 19%
+If you run the CLI without `CREATE_USER_PASSWORD`, the script prompts for the password and confirmation.
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `SESSION_SECRET` | recommended | Secret for session cookies (generate with `openssl rand -hex 32`) |
-| `NODE_ENV` | recommended | Set to `production` for secure cookies |
-| `PORT` | no | Server port (default: 3000) |
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `SESSION_SECRET` | yes | none | Must be at least 32 characters. The app will not start without it. |
+| `NODE_ENV` | recommended | `development` | Set to `production` for secure cookies. |
+| `PORT` | no | `3000` | Coolify usually injects this from the exposed port. |
+| `TRUST_PROXY` | no | `1` | Correct for a single reverse proxy in front of the app. |
+| `TZ` | recommended | system default | Set `TZ=Europe/Berlin` if you want date inputs and reports aligned to Berlin time. |
+| `DISABLE_WEB_SETUP` | no | `false` | Set to `true` to require initial user creation via CLI instead of the browser. |
+| `ALLOW_UNSIGNED_WEBHOOKS` | no | `false` | Only use for local/dev testing. In production this should stay `false`. |
 
-Stripe keys and Slack URLs are managed per-account via the admin GUI (stored in `data/accounts.json`).
+## Account Configuration
 
-## Stripe Setup (per account)
+Each account stores:
 
-1. In Stripe Dashboard → Developers → Webhooks → Add endpoint
-2. URL: `https://your-domain.com/webhook/<account-slug>`
-3. Events: select **`checkout.session.completed`**
-4. Copy the signing secret into the admin GUI
+- `slug`
+- display name
+- Stripe secret key
+- Stripe webhook signing secret
+- Slack webhook URL
 
-### Product Metadata
+Runtime data is stored under `data/`:
 
-On each Stripe product, add a metadata field:
-- Key: `vat_rate`
-- Value: `7` or `19`
+- `accounts.json`
+- `users.json`
+- `audit.log`
+- `processed-sessions.json`
 
-## Monthly VAT Report (CLI)
+The admin UI never returns stored secrets back to the browser. Existing values are shown only as masked placeholders.
+State-changing browser requests must come from the same origin as the app.
+
+## Webhook Behavior
+
+Per account, configure a Stripe webhook endpoint like:
+
+```text
+https://your-domain.example/webhook/hotel-berlin
+```
+
+Use the Stripe event:
+
+- `checkout.session.completed`
+
+If a webhook secret is missing:
+
+- production/default behavior: request is rejected
+- local/dev override: set `ALLOW_UNSIGNED_WEBHOOKS=true`
+
+The app fetches the checkout session from Stripe before building the Slack message, and it suppresses duplicate notifications for the same session.
+
+## VAT Resolution
+
+VAT is resolved in this order:
+
+1. `product.metadata.vat_rate`
+2. hardcoded product ID map in [`config.js`](/Users/niklashofmann/Sites/stripe-invoicing-tool/config.js)
+3. keyword fallback
+4. default `19%`
+
+Recommended Stripe metadata:
+
+- key: `vat_rate`
+- value: `7` or `19`
+
+## GUI Export
+
+The dashboard now includes an `Export` action per account.
+
+The export page lets you:
+
+- choose `from` and `to` dates
+- use `This Month` / `Last Month` presets
+- download a line-item CSV for completed checkout sessions
+- export up to one year per download
+
+The export is currently line-item based because that best matches VAT reporting.
+
+## CLI Report
 
 ```bash
-# Using a configured account
+# Summary only
 node report.js 2026-03 --account=hotel-berlin
 
-# With CSV export
+# Summary + CSV export
 node report.js 2026-03 --account=hotel-berlin --csv
 
-# Legacy: using env var directly
-STRIPE_SECRET_KEY=sk_live_... node report.js 2026-03
+# Legacy direct key usage
+STRIPE_SECRET_KEY=sk_live_... node report.js 2026-03 --csv
 ```
 
-The CSV uses `;` as delimiter for German-locale Excel compatibility.
-
-## Slack Message Format
-
-```
-💳 [Hotel Berlin] Zahlung eingegangen – 45,00 €
-
-Datum:           10.03.2026, 14:23
-Gast:            guest@example.com
-
-•  Early Check-in  —  30,00 € brutto  (7% USt: 1,96 €)
-•  Parking          —  15,00 € brutto  (19% USt: 2,39 €)
-
-────────────────────────────────
-Brutto: 45,00 €    Netto: 40,65 €    USt gesamt: 4,35 €
-[In Stripe öffnen]
-```
-
-## Deploy on Coolify
-
-Push to GitHub and add as a Dockerfile-based service in Coolify. Set environment variables:
-
-```
-SESSION_SECRET=<random-hex-string>
-NODE_ENV=production
-```
-
-Add a persistent volume for `/app/data` so account configs and user credentials survive redeployments.
-
-## CLI User Management
+## Tests
 
 ```bash
-# Create a user from the command line (useful for headless/Docker setups)
-node scripts/create-user.js admin mypassword
+npm test
 ```
+
+The test suite covers:
+
+- setup disabling
+- secret masking
+- unsigned webhook rejection
+- duplicate webhook suppression
+- CSV escaping against spreadsheet formulas
+
+## Deploy On Coolify
+
+These steps follow Coolify’s current Dockerfile deployment flow and storage model:
+
+- Dockerfile build pack docs: [Coolify Dockerfile build pack](https://coolify.io/docs/applications/build-packs/dockerfile)
+- persistent storage docs: [Coolify persistent storage](https://coolify.io/docs/knowledge-base/persistent-storage)
+- environment variables docs: [Coolify environment variables](https://coolify.io/docs/knowledge-base/environment-variables)
+
+### Recommended Production Settings
+
+Use these environment variables in Coolify:
+
+```text
+SESSION_SECRET=<openssl rand -hex 32>
+NODE_ENV=production
+TZ=Europe/Berlin
+TRUST_PROXY=1
+DISABLE_WEB_SETUP=true
+ALLOW_UNSIGNED_WEBHOOKS=false
+```
+
+You do not need to set `PORT` manually if Coolify already injects it from the exposed port.
+
+### Exact Coolify Steps
+
+1. In Coolify, open your project and create a new application resource from this Git repository.
+2. Select the `Dockerfile` build pack.
+3. Set `Base Directory` to `/` if this repository is deployed as-is.
+4. In the networking section, set `Ports Exposes` to `3000`.
+5. Configure your domain in Coolify.
+6. Add the environment variables listed above.
+7. Add persistent storage with destination path `/app/data`.
+8. Deploy the application.
+9. After the first successful deployment, open the application terminal in Coolify and create the first user:
+
+```bash
+cd /app
+CREATE_USER_PASSWORD='replace-with-a-strong-password' npm run create-user -- admin
+```
+
+10. Open `https://your-domain.example/login.html` and log in with that user.
+11. Create an account in the admin UI.
+12. Copy the generated webhook URL shown in the account form and add it in the Stripe Dashboard.
+13. In Stripe, subscribe that endpoint to `checkout.session.completed`.
+14. Paste the Stripe webhook signing secret into the account in the admin UI.
+15. Add the Slack webhook URL if you want notifications enabled.
+
+### Coolify Notes
+
+- Coolify’s Dockerfile flow expects the app to listen on the configured exposed port. This app listens on `PORT` and defaults to `3000`.
+- Coolify’s storage docs state the container base directory is `/app`, so `/app/data` is the correct mount target for persistent JSON data.
+- Coolify documents a browser terminal, which is the easiest way to run the initial `create-user` command when `DISABLE_WEB_SETUP=true`.
+
+## Deployment Checklist
+
+- `SESSION_SECRET` set and strong
+- `NODE_ENV=production`
+- `ALLOW_UNSIGNED_WEBHOOKS=false`
+- persistent storage mounted at `/app/data`
+- first admin created
+- each account has a Stripe secret key
+- each account has a Stripe webhook secret
+- each account has a Slack webhook URL if notifications are desired
 
 ## Project Structure
 
-```
-├── webhook.js              # Express server: webhooks + GUI + API
-├── config.js               # VAT rate lookup (metadata → keywords → default)
-├── report.js               # CLI: monthly VAT summary + CSV
-├── accounts.js             # Account store (data/accounts.json)
-├── auth.js                 # User auth with bcrypt (data/users.json)
+```text
+.
+├── accounts.js
+├── audit.js
+├── config.js
+├── exports.js
+├── processed-sessions.js
+├── report.js
 ├── routes/
-│   └── api.js              # REST API for auth + account CRUD
+│   └── api.js
 ├── public/
-│   ├── index.html          # Dashboard: account list
-│   ├── login.html          # Login / first-run setup
-│   ├── account-form.html   # Add / edit account
-│   ├── style.css
-│   └── app.js              # Shared client-side utilities
+│   ├── account-form.html
+│   ├── app.js
+│   ├── export.html
+│   ├── index.html
+│   └── login.html
 ├── scripts/
-│   └── create-user.js      # CLI user creation
-├── data/                   # Runtime data (gitignored)
-│   ├── accounts.json       # Stripe account configs
-│   └── users.json          # User credentials (bcrypt-hashed)
-├── Dockerfile
-└── package.json
+│   └── create-user.js
+├── storage.js
+├── test/
+│   └── app.test.js
+├── webhook.js
+└── Dockerfile
 ```
