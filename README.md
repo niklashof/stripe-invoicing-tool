@@ -1,80 +1,83 @@
 # Stripe VAT Report & Slack Notifications
 
-Two tools in one:
+Multi-account Stripe webhook server that posts real-time payment notifications with VAT breakdowns to Slack. Includes an admin GUI for managing accounts and a CLI report generator.
 
-1. **`webhook.js`** — Express server that listens for Stripe checkout completions and posts a formatted notification to Slack with VAT breakdown
-2. **`report.js`** — CLI tool to generate a monthly VAT summary and CSV export
+Built for accommodation businesses (Airbnb managers, hotels) that send Stripe payment links for services like early check-in, parking, extra persons, etc. — each with different VAT rates.
 
-Both share the same product → VAT rate mapping in `config.js`.
+## Features
 
-## Setup
+- **Multi-account** — manage multiple Stripe accounts, each with its own Slack channel
+- **VAT from metadata** — reads the `vat_rate` field from Stripe product metadata (set to `7` or `19`)
+- **Real-time Slack notifications** — posts a formatted message on every completed checkout
+- **Admin GUI** — web interface to add/edit/delete accounts, with login system
+- **Monthly reports** — CLI tool for VAT summaries + CSV export
+
+## Quick Start
 
 ```bash
 npm install
+npm start
 ```
 
-### Product → VAT mapping
+Visit `http://localhost:3000` — on first run you'll be prompted to create an admin account.
 
-Edit `config.js` with your actual Stripe Product IDs:
+## How It Works
 
-```js
-const PRODUCT_VAT_MAP = {
-  "prod_ABC123": { label: "Early Check-in",           vatRate: 7  },
-  "prod_DEF456": { label: "Late Check-out",            vatRate: 7  },
-  "prod_GHI789": { label: "Parking",                   vatRate: 19 },
-  "prod_JKL012": { label: "Extra Person",              vatRate: 19 },
-  "prod_MNO345": { label: "Postage (forgotten items)", vatRate: 19 },
-};
-```
+1. Add a Stripe account via the admin GUI (Stripe key, webhook secret, Slack URL)
+2. The GUI shows the webhook URL to configure in Stripe (e.g. `/webhook/hotel-berlin`)
+3. Set `vat_rate` as metadata on your Stripe products (`7` or `19`)
+4. When a customer pays, Stripe sends a webhook → the server posts a Slack notification with VAT breakdown
 
-The keyword fallback matches by product name, so if your products are named
-sensibly (e.g. "Early Check-in", "Parking") it may work without explicit IDs.
+### VAT Rate Resolution
 
----
+The tool determines the VAT rate for each line item in this order:
 
-## 1. Real-time Slack Notifications
+1. **Product metadata** — `vat_rate` field on the Stripe product (recommended)
+2. **Keyword matching** — falls back to matching product names (e.g. "check-in" → 7%)
+3. **Default** — 19%
 
-### Environment variables
+## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `STRIPE_SECRET_KEY` | yes | Stripe secret key |
-| `STRIPE_WEBHOOK_SECRET` | recommended | Webhook signing secret (`whsec_...`) |
-| `SLACK_WEBHOOK_URL` | yes | Slack Incoming Webhook URL |
+| `SESSION_SECRET` | recommended | Secret for session cookies (generate with `openssl rand -hex 32`) |
+| `NODE_ENV` | recommended | Set to `production` for secure cookies |
 | `PORT` | no | Server port (default: 3000) |
 
-### Slack Incoming Webhook setup
+Stripe keys and Slack URLs are managed per-account via the admin GUI (stored in `data/accounts.json`).
 
-1. Go to https://api.slack.com/apps → Create New App → From Scratch
-2. Enable **Incoming Webhooks**
-3. Add a webhook to the Slack Connect channel shared with the customer
-4. Copy the webhook URL
-
-### Stripe Webhook setup
+## Stripe Setup (per account)
 
 1. In Stripe Dashboard → Developers → Webhooks → Add endpoint
-2. URL: `https://your-coolify-domain.example.com/webhook`
+2. URL: `https://your-domain.com/webhook/<account-slug>`
 3. Events: select **`checkout.session.completed`**
-4. Copy the signing secret
+4. Copy the signing secret into the admin GUI
 
-### Run locally
+### Product Metadata
+
+On each Stripe product, add a metadata field:
+- Key: `vat_rate`
+- Value: `7` or `19`
+
+## Monthly VAT Report (CLI)
 
 ```bash
-STRIPE_SECRET_KEY=sk_live_... \
-STRIPE_WEBHOOK_SECRET=whsec_... \
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../... \
-node webhook.js
+# Using a configured account
+node report.js 2026-03 --account=hotel-berlin
+
+# With CSV export
+node report.js 2026-03 --account=hotel-berlin --csv
+
+# Legacy: using env var directly
+STRIPE_SECRET_KEY=sk_live_... node report.js 2026-03
 ```
 
-### Deploy on Coolify
+The CSV uses `;` as delimiter for German-locale Excel compatibility.
 
-Push to a Git repo and add as a Dockerfile-based service in Coolify.
-Set the environment variables in the Coolify service settings.
-
-### What the Slack message looks like
+## Slack Message Format
 
 ```
-💳 Zahlung eingegangen – 45,00 €
+💳 [Hotel Berlin] Zahlung eingegangen – 45,00 €
 
 Datum:           10.03.2026, 14:23
 Gast:            guest@example.com
@@ -87,29 +90,45 @@ Brutto: 45,00 €    Netto: 40,65 €    USt gesamt: 4,35 €
 [In Stripe öffnen]
 ```
 
----
+## Deploy on Coolify
 
-## 2. Monthly VAT Report (CLI)
+Push to GitHub and add as a Dockerfile-based service in Coolify. Set environment variables:
+
+```
+SESSION_SECRET=<random-hex-string>
+NODE_ENV=production
+```
+
+Add a persistent volume for `/app/data` so account configs and user credentials survive redeployments.
+
+## CLI User Management
 
 ```bash
-# Console summary
-STRIPE_SECRET_KEY=sk_live_... node report.js 2026-02
-
-# Console summary + CSV export
-STRIPE_SECRET_KEY=sk_live_... node report.js 2026-02 --csv
+# Create a user from the command line (useful for headless/Docker setups)
+node scripts/create-user.js admin mypassword
 ```
 
-The CSV uses `;` as delimiter for German-locale Excel compatibility.
-
----
-
-## Project structure
+## Project Structure
 
 ```
-├── config.js       # Shared product → VAT rate mapping
-├── webhook.js      # Express server: Stripe webhook → Slack
-├── report.js       # CLI: monthly VAT summary + CSV
-├── Dockerfile      # For Coolify deployment
-├── package.json
-└── README.md
+├── webhook.js              # Express server: webhooks + GUI + API
+├── config.js               # VAT rate lookup (metadata → keywords → default)
+├── report.js               # CLI: monthly VAT summary + CSV
+├── accounts.js             # Account store (data/accounts.json)
+├── auth.js                 # User auth with bcrypt (data/users.json)
+├── routes/
+│   └── api.js              # REST API for auth + account CRUD
+├── public/
+│   ├── index.html          # Dashboard: account list
+│   ├── login.html          # Login / first-run setup
+│   ├── account-form.html   # Add / edit account
+│   ├── style.css
+│   └── app.js              # Shared client-side utilities
+├── scripts/
+│   └── create-user.js      # CLI user creation
+├── data/                   # Runtime data (gitignored)
+│   ├── accounts.json       # Stripe account configs
+│   └── users.json          # User credentials (bcrypt-hashed)
+├── Dockerfile
+└── package.json
 ```
