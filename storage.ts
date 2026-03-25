@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const DEFAULT_DATA_DIR = path.join(__dirname, "data");
+const DEFAULT_DATA_DIR = path.join(process.cwd(), "data");
 
 export function getDataDir(): string {
   return process.env.DATA_DIR || DEFAULT_DATA_DIR;

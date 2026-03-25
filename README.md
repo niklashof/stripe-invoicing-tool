@@ -59,6 +59,7 @@ If you run the CLI without `CREATE_USER_PASSWORD`, the script prompts for the pa
 | `NODE_ENV` | recommended | `development` | Set to `production` for secure cookies. |
 | `PORT` | no | `3000` | Coolify usually injects this from the exposed port. |
 | `TRUST_PROXY` | no | `1` | Correct for a single reverse proxy in front of the app. |
+| `DATA_DIR` | no | `./data` | Defaults to `data/` under the app working directory. In the Docker image that resolves to `/app/data`. |
 | `TZ` | recommended | system default | Set `TZ=Europe/Berlin` if you want date inputs and reports aligned to Berlin time. |
 | `DISABLE_WEB_SETUP` | no | `false` | Set to `true` to require initial user creation via CLI instead of the browser. |
 | `ALLOW_UNSIGNED_WEBHOOKS` | no | `false` | Only use for local/dev testing. In production this should stay `false`. |
@@ -207,6 +208,7 @@ CREATE_USER_PASSWORD='replace-with-a-strong-password' npm run create-user -- adm
 
 - Coolify’s Dockerfile flow expects the app to listen on the configured exposed port. This app listens on `PORT` and defaults to `3000`.
 - Coolify’s storage docs state the container base directory is `/app`, so `/app/data` is the correct mount target for persistent JSON data.
+- The app now defaults its writable data directory to `./data`, which resolves to `/app/data` inside the container, so the mounted Coolify volume is used automatically.
 - Coolify documents a browser terminal, which is the easiest way to run the initial `create-user` command when `DISABLE_WEB_SETUP=true`.
 
 ## Deployment Checklist
