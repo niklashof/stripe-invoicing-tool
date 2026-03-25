@@ -123,9 +123,10 @@ export async function handleCheckoutCompleted(
   stripeClient: StripeClientLike,
   account: Account,
   sessionId: string
-): Promise<{ customerEmail: string; totalGross: number }> {
+): Promise<{ customerEmail: string; totalGross: number; warnings: string[] }> {
   const checkoutSession = await fetchCheckoutSessionDetails(stripeClient, sessionId);
   const lineItems = await getExpandedLineItems(stripeClient, checkoutSession);
+  const warnings = new Set<string>();
 
   const items: Array<{
     label: string;
@@ -144,6 +145,9 @@ export async function handleCheckoutCompleted(
     const productName = typeof product === "object" ? product?.name : null;
     const productMetadata = typeof product === "object" ? product?.metadata : null;
     const vat = lookupVat(productId, productName, productMetadata);
+    if (vat.warning) {
+      warnings.add(vat.warning);
+    }
 
     const grossCents = item.amount_total;
     const netCents = Math.round(grossCents / (1 + vat.vatRate / 100));
@@ -233,7 +237,10 @@ export async function handleCheckoutCompleted(
   if (!account.slackWebhookUrl) {
     console.log(`[${account.slug}] No Slack URL configured; printing payload`);
     console.log(JSON.stringify(slackPayload, null, 2));
-    return { customerEmail, totalGross };
+    for (const warning of warnings) {
+      console.warn(`[${account.slug}] ${warning}`);
+    }
+    return { customerEmail, totalGross, warnings: Array.from(warnings).sort() };
   }
 
   const response = await fetch(account.slackWebhookUrl, {
@@ -247,7 +254,11 @@ export async function handleCheckoutCompleted(
     throw new Error(`Slack webhook failed (${response.status}): ${text}`);
   }
 
-  return { customerEmail, totalGross };
+  for (const warning of warnings) {
+    console.warn(`[${account.slug}] ${warning}`);
+  }
+
+  return { customerEmail, totalGross, warnings: Array.from(warnings).sort() };
 }
 
 export function createApp(options: CreateAppOptions = {}): express.Express {
@@ -341,6 +352,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
           sessionId,
           totalGross: result.totalGross,
           customerEmail: result.customerEmail,
+          vatWarnings: result.warnings.length,
         });
         res.json({ received: true });
       } catch (error) {

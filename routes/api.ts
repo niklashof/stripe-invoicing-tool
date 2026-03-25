@@ -365,6 +365,9 @@ export default function createApiRouter(options: CreateApiRouterOptions = {}): R
     try {
       const stripeClient = requireFactory(account.stripeSecretKey);
       const report = await buildLineItemReport(stripeClient, range);
+      for (const warning of report.warnings) {
+        console.warn(`[export:${account.slug}] ${warning}`);
+      }
       const csv = buildLineItemCsv(report.rows);
       const filename = `stripe-line-items-${account.slug}-${from}-to-${to}.csv`;
 
@@ -373,6 +376,7 @@ export default function createApiRouter(options: CreateApiRouterOptions = {}): R
         from,
         to,
         rowCount: report.rows.length,
+        vatWarnings: report.warnings.length,
         ...actorMeta(req),
       });
 

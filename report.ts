@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     : `Fetching completed payments for ${period.label} ...`;
   console.log(`\n${heading}\n`);
 
-  const { buckets, rows, sessions } = await buildLineItemReport(stripe, {
+  const { buckets, rows, sessions, warnings } = await buildLineItemReport(stripe, {
     from: period.from,
     to: period.to,
   });
@@ -98,6 +98,14 @@ async function main(): Promise<void> {
   }
 
   console.log(`Found ${sessions.length} completed session(s).\n`);
+
+  if (warnings.length > 0) {
+    console.warn("Warnings:");
+    for (const warning of warnings) {
+      console.warn(`- ${warning}`);
+    }
+    console.warn("");
+  }
 
   console.log("═══════════════════════════════════════════════════════");
   const title = accountName

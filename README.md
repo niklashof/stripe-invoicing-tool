@@ -108,14 +108,14 @@ The app fetches the checkout session from Stripe before building the Slack messa
 VAT is resolved in this order:
 
 1. `product.metadata.vat_rate`
-2. hardcoded product ID map in [`config.ts`](/Users/niklashofmann/Sites/stripe-invoicing-tool/config.ts)
-3. keyword fallback
-4. default `19%`
+2. default `19%` with a warning if metadata is missing or invalid
 
 Recommended Stripe metadata:
 
 - key: `vat_rate`
 - value: `7` or `19`
+
+The application no longer uses hardcoded product IDs or product-name keyword rules for VAT classification.
 
 ## GUI Export
 

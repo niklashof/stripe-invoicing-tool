@@ -97,24 +97,25 @@ export async function fetchCheckoutSessionDetails(
   });
 }
 
-function buildLineItemRow(session: StripeSessionLike, item: StripeLineItemLike): LineItemRow {
+function buildLineItemRow(
+  session: StripeSessionLike,
+  item: StripeLineItemLike,
+  vat: ReturnType<typeof lookupVat>
+): LineItemRow {
   const product = item.price?.product;
   const productId = typeof product === "string" ? product : product?.id;
-  const productName = typeof product === "object" ? product?.name : null;
-  const productMetadata = typeof product === "object" ? product?.metadata : null;
-  const { label, vatRate } = lookupVat(productId, productName, productMetadata);
 
   const grossCents = item.amount_total;
-  const netCents = Math.round(grossCents / (1 + vatRate / 100));
+  const netCents = Math.round(grossCents / (1 + vat.vatRate / 100));
   const vatCents = grossCents - netCents;
 
   return {
     date: new Date(session.created * 1000).toISOString().slice(0, 10),
     sessionId: session.id,
     customerEmail: session.customer_details?.email || "",
-    product: label,
+    product: vat.label,
     productId: productId || null,
-    vatRate,
+    vatRate: vat.vatRate,
     quantity: item.quantity,
     grossCents,
     netCents,
@@ -129,12 +130,22 @@ export async function buildLineItemReport(
   const sessions = await listCompletedSessions(stripeClient, range);
   const rows: LineItemRow[] = [];
   const buckets: VatBuckets = {};
+  const warnings = new Set<string>();
 
   for (const session of sessions) {
     const lineItems = await getExpandedLineItems(stripeClient, session);
 
     for (const item of lineItems) {
-      const row = buildLineItemRow(session, item);
+      const product = item.price?.product;
+      const productId = typeof product === "string" ? product : product?.id;
+      const productName = typeof product === "object" ? product?.name : null;
+      const productMetadata = typeof product === "object" ? product?.metadata : null;
+      const vat = lookupVat(productId, productName, productMetadata);
+      if (vat.warning) {
+        warnings.add(vat.warning);
+      }
+
+      const row = buildLineItemRow(session, item, vat);
       rows.push(row);
 
       if (!buckets[row.vatRate]) {
@@ -157,7 +168,7 @@ export async function buildLineItemReport(
     }
   }
 
-  return { buckets, rows, sessions };
+  return { buckets, rows, sessions, warnings: Array.from(warnings).sort() };
 }
 
 function neutralizeSpreadsheetFormula(value: unknown): string {

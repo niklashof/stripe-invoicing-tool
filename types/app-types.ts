@@ -28,6 +28,8 @@ export interface StoredUser extends SafeUser {
 export interface VatLookupResult {
   label: string;
   vatRate: number;
+  source: "metadata" | "default";
+  warning?: string;
 }
 
 export interface ExportRange {
@@ -120,6 +122,7 @@ export interface LineItemReport {
   buckets: VatBuckets;
   rows: LineItemRow[];
   sessions: StripeSessionLike[];
+  warnings: string[];
 }
 
 export interface ProcessedSessionsState {
